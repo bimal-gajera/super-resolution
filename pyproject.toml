@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "srbench"
+version = "0.1.0"
+description = "BasicSR-style super-resolution benchmark (Sentinel-2 -> Maxar): ESRGAN, SwinIR"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "numpy",
+    "opencv-python-headless",
+    "tifffile",
+    "imagecodecs",
+    "pyyaml",
+    "tqdm",
+    "tensorboard",
+    "scipy",
+    "lpips",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["srbench*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

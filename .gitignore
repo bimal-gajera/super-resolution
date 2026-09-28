@@ -1,0 +1,14 @@
+# data caches, runs, results (large / generated)
+datasets/
+experiments/
+results/
+tb_logger/
+wandb/
+docs/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+slurm_logs/

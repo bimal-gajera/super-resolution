@@ -1,0 +1,15 @@
+# Pinned environment used to develop/validate srbench (conda env: /ocean/projects/cis250179p/purohit/super-res/envs/srbench, Python 3.11)
+# torch/torchvision come from the CUDA 12.6 index (supports V100 sm_70 ... H100 sm_90):
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu126
+imagecodecs==2026.3.6
+lpips==0.1.4
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+pytest==9.1.1
+PyYAML==6.0.3
+scipy==1.17.1
+tensorboard==2.21.0
+tifffile==2026.3.3
+torch==2.14.0+cu126
+torchvision==0.29.0+cu126
+tqdm==4.70.1
