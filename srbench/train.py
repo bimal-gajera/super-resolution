@@ -10,7 +10,7 @@ from srbench.data.data_sampler import EnlargedSampler
 from srbench.data.prefetch_dataloader import CPUPrefetcher, CUDAPrefetcher
 from srbench.models import build_model
 from srbench.utils import (AvgTimer, MessageLogger, check_resume, get_env_info, get_root_logger, get_time_str,
-                           init_tb_logger, init_wandb_logger, make_exp_dirs, mkdir_and_rename, scandir)
+                           finish_wandb_logger, init_tb_logger, init_wandb_logger, make_exp_dirs, mkdir_and_rename, scandir)
 from srbench.utils.options import copy_opt_file, dict2str, parse_options
 
 
@@ -220,6 +220,7 @@ def train_pipeline(root_path):
             model.validation(val_loader, current_iter, tb_logger, opt['val']['save_img'])
     if tb_logger:
         tb_logger.close()
+    finish_wandb_logger(opt)
 
 
 if __name__ == '__main__':

@@ -104,9 +104,11 @@ logger:
   print_freq: 100
   save_checkpoint_freq: !!float 1e3
   use_tb_logger: true
-  wandb:
+  wandb:                 # W&B mirrors tensorboard; set project to enable (needs `wandb login`)
     project: ~
-    resume_id: ~
+    entity: ~              # W&B user/team; ~ = your default
+    group: ~
+    resume_id: ~           # normally ~: resumed jobs reuse experiments/<name>/wandb_id.txt
 
 # dist training settings
 dist_params:

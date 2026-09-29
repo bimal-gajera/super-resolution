@@ -104,6 +104,12 @@ jid=$(sbatch --parsable scripts/slurm/train.sbatch CFG); sbatch --dependency=aft
 sbatch --gpus=v100-32:2 scripts/slurm/train.sbatch CFG                  # 2 GPUs -> torchrun DDP
 ```
 
+**Weights & Biases** (optional, mirrors tensorboard: losses, val metrics, LR|SR|GT panels): `wandb login` once, then
+set `logger.wandb.project` in the YAML or on the command line, e.g.
+`--force_yml logger:wandb:project=s2maxar-sr`. Jobs continued with `--auto_resume` append to the same W&B run
+(id stored in `experiments/<name>/wandb_id.txt`); `--debug` runs are never logged. On nodes without internet use
+`export WANDB_MODE=offline` and upload later with `wandb sync experiments/<name>/wandb/offline-run-*`.
+
 Everything BasicSR offers works the same way: `--debug` (tiny intervals, name prefixed `debug_`),
 `--force_yml key:sub=value` overrides, `--launcher pytorch` for DDP, `auto_resume`, EMA (`ema_decay`), tensorboard
 (`tb_logger/<name>`). Outputs go to `experiments/<name>/`: `models/net_g_<iter>.pth` (`params` + `params_ema`),

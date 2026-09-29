@@ -3,6 +3,7 @@
 #   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu126
 imagecodecs==2026.3.6
 lpips==0.1.4
+matplotlib==3.11.2
 numpy==2.4.6
 opencv-python-headless==5.0.0.93
 pytest==9.1.1
@@ -13,3 +14,4 @@ tifffile==2026.3.3
 torch==2.14.0+cu126
 torchvision==0.29.0+cu126
 tqdm==4.70.1
+wandb==0.30.0

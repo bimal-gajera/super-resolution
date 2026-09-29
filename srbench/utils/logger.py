@@ -1,6 +1,8 @@
 import datetime
 import logging
 import time
+import uuid
+from os import path as osp
 
 from .dist_util import get_dist_info, master_only
 
@@ -124,23 +126,50 @@ def init_tb_logger(log_dir):
 
 @master_only
 def init_wandb_logger(opt):
-    """We now only use wandb to sync tensorboard log."""
+    """Weights & Biases logging (mirrors the tensorboard logs via ``sync_tensorboard``).
+
+    srbench: the run id is stored in ``<experiment>/wandb_id.txt`` when the run is created, so jobs continued with
+    ``--auto_resume`` (e.g. chained Slurm jobs) append to the same W&B run instead of starting a new one.
+    ``logger.wandb.resume_id`` still overrides it. Optional keys: ``entity``, ``group``, ``tags``.
+    Offline use: ``export WANDB_MODE=offline`` and later ``wandb sync <experiment>/wandb/offline-run-*``.
+    """
     import wandb
     logger = get_root_logger()
 
-    project = opt['logger']['wandb']['project']
-    resume_id = opt['logger']['wandb'].get('resume_id')
-    if resume_id:
-        wandb_id = resume_id
-        resume = 'allow'
-        logger.warning(f'Resume wandb logger with id={wandb_id}.')
+    wandb_opt = opt['logger']['wandb']
+    exp_root = opt['path']['experiments_root']
+    id_file = osp.join(exp_root, 'wandb_id.txt')
+    wandb_id = wandb_opt.get('resume_id')
+    if not wandb_id and osp.exists(id_file):
+        with open(id_file) as f:
+            wandb_id = f.read().strip()
+    if wandb_id:
+        logger.info(f'Resume wandb run id={wandb_id}.')
     else:
-        wandb_id = wandb.util.generate_id()
-        resume = 'never'
+        wandb_id = uuid.uuid4().hex[:8]
+    with open(id_file, 'w') as f:
+        f.write(wandb_id + '\n')
 
-    wandb.init(id=wandb_id, resume=resume, name=opt['name'], config=opt, project=project, sync_tensorboard=True)
+    wandb.init(
+        id=wandb_id,
+        resume='allow',
+        name=opt['name'],
+        project=wandb_opt['project'],
+        entity=wandb_opt.get('entity'),
+        group=wandb_opt.get('group'),
+        tags=wandb_opt.get('tags'),
+        config=opt,
+        dir=exp_root,
+        sync_tensorboard=True)
+    logger.info(f'Use wandb logger with id={wandb_id}; project={wandb_opt["project"]}.')
 
-    logger.info(f'Use wandb logger with id={wandb_id}; project={project}.')
+
+def finish_wandb_logger(opt):
+    """Close the W&B run (flushes the last tensorboard events) if one was started."""
+    if opt['logger'].get('wandb', {}).get('project') and 'debug' not in opt['name'] and opt.get('rank', 0) == 0:
+        import wandb
+        if wandb.run is not None:
+            wandb.finish()
 
 
 def get_root_logger(logger_name='srbench', log_level=logging.INFO, log_file=None):

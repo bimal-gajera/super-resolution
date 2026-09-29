@@ -19,6 +19,8 @@ dependencies = [
     "tensorboard",
     "scipy",
     "lpips",
+    "matplotlib",
+    "wandb",
 ]
 
 [project.optional-dependencies]
