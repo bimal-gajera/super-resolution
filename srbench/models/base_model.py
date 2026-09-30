@@ -1,4 +1,6 @@
+import glob
 import os
+import re
 import time
 import torch
 from collections import OrderedDict
@@ -236,10 +238,14 @@ class BaseModel():
         for net_, param_key_ in zip(net, param_key):
             net_ = self.get_bare_model(net_)
             state_dict = net_.state_dict()
+            on_cpu = {}  # srbench: tensors registered under several names are copied (and stored) once
             for key, param in state_dict.items():
                 if key.startswith('module.'):  # remove unnecessary 'module.'
                     key = key[7:]
-                state_dict[key] = param.cpu()
+                ident = (param.data_ptr(), param.dtype, tuple(param.shape))
+                if ident not in on_cpu:
+                    on_cpu[ident] = param.cpu()
+                state_dict[key] = on_cpu[ident]
             save_dict[param_key_] = state_dict
 
         # avoid occasional writing errors
@@ -258,6 +264,21 @@ class BaseModel():
         if retry == 0:
             logger.warning(f'Still cannot save {save_path}. Just ignore it.')
             # raise IOError(f'Cannot save {save_path}.')
+        self._prune_checkpoints(self.opt['path']['models'], f'{net_label}_*.pth')
+
+    def _prune_checkpoints(self, folder, pattern):
+        """srbench: with ``logger.keep_last: N`` keep only the N newest numbered checkpoints matching ``pattern``
+        (``*_latest`` and ``*_best`` are never removed). Off by default; meant for multi-GB models."""
+        keep = self.opt.get('logger', {}).get('keep_last')
+        if not keep:
+            return
+        numbered = []
+        for f in glob.glob(os.path.join(folder, pattern)):
+            m = re.search(r'(?:_|^)(\d+)\.(?:pth|state)$', os.path.basename(f))
+            if m:
+                numbered.append((int(m.group(1)), f))
+        for _, f in sorted(numbered)[:-keep]:
+            os.remove(f)
 
     def _print_different_keys_loading(self, crt_net, load_net, strict=True):
         """Print keys with different name or different size when loading models.
@@ -358,6 +379,7 @@ class BaseModel():
             if retry == 0:
                 logger.warning(f'Still cannot save {save_path}. Just ignore it.')
                 # raise IOError(f'Cannot save {save_path}.')
+            self._prune_checkpoints(self.opt['path']['training_states'], '*.state')
 
     def resume_training(self, resume_state):
         """Reload the optimizers and schedulers for resumed training.

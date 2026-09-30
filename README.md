@@ -10,8 +10,10 @@ options, `train.py`/`test.py` entry points, experiment folders) for benchmarking
 | RRDBNet (ESRGAN stage 1, PSNR) | `options/{train,test}/ESRGAN/*RRDBNet_PSNR_x4.yml` | L1 |
 | ESRGAN (stage 2, GAN) | `options/{train,test}/ESRGAN/*ESRGAN_x4.yml` | init from stage 1; L1 + VGG19 perceptual + relativistic GAN |
 | SwinIR (classical SR) | `options/{train,test}/SwinIR/*SwinIR_SRx4*.yml` | L1, embed 180, 6×6 RSTB, window 8 |
+| EDSR (EDSR-L; EDSR-M = baseline size) | `options/{train,test}/EDSR/*EDSR_{L,M}x4.yml` | L1, 32 blocks × 256 feat, res_scale 0.1 (M: 16 × 64) |
+| AdcSR (one-step diffusion, CVPR 2025) | `options/{train,test}/AdcSR/*AdcSR_x4*.yml` | RGB input; SD 2.1-based student distilled from OSEDiff + adversarial loss; ×4 only; own env (below) |
 
-The two PSNR-oriented models (RRDBNet, SwinIR) share the same data budget (batch 16 × 300k iterations) so
+The PSNR-oriented models (RRDBNet, SwinIR, EDSR) share the same data budget (batch 16 × 300k iterations) so
 they are directly comparable; LR schedules follow the shape of the respective BasicSR configs.
 
 ## Environment
@@ -25,6 +27,16 @@ python -m pytest tests      # ~20 s, synthetic data, no GPU needed
 
 The cu126 wheels cover V100 (sm_70), L40S and H100. `pip install -e .` is required (like BasicSR's
 `python setup.py develop`) so that `python srbench/train.py` can import the package.
+
+**AdcSR** uses a second environment, because its prompt extractor (RAM/DAPE) needs the old transformers/timm versions
+pinned by the AdcSR repo. srbench itself runs unchanged in it (all tests pass):
+
+```bash
+conda create -p /ocean/projects/cis250179p/purohit/super-res/envs/adcsr python=3.10 -y
+envs/adcsr/bin/pip install -r requirements-adcsr.txt --extra-index-url https://download.pytorch.org/whl/cu121
+envs/adcsr/bin/pip install -e . --no-deps
+envs/adcsr/bin/python scripts/download_adcsr_weights.py   # ~17 GB -> experiments/pretrained_models/{AdcSR,stable-diffusion-2-1-base}
+```
 
 ## Data
 
@@ -95,6 +107,8 @@ cache needed), and `lq_source: bicubic` (synthetic LR from the GT, a pipeline sa
 python srbench/train.py -opt options/train/ESRGAN/train_RRDBNet_PSNR_x4.yml --auto_resume
 python srbench/train.py -opt options/train/ESRGAN/train_ESRGAN_x4.yml --auto_resume
 python srbench/train.py -opt options/train/SwinIR/train_SwinIR_SRx4_scratch.yml --auto_resume
+python srbench/train.py -opt options/train/EDSR/train_EDSR_Lx4.yml --auto_resume        # or train_EDSR_Mx4.yml
+envs/adcsr/bin/python srbench/train.py -opt options/train/AdcSR/train_AdcSR_x4.yml --auto_resume   # ~27 GB GPU memory
 python srbench/train.py -opt options/train/Baseline/train_Bicubic_x4.yml
 
 # Slurm (Bridges-2, 48 h max; --auto_resume is always on, so chaining jobs continues the run)
@@ -102,6 +116,9 @@ mkdir -p slurm_logs
 sbatch scripts/slurm/train.sbatch options/train/ESRGAN/train_RRDBNet_PSNR_x4.yml
 jid=$(sbatch --parsable scripts/slurm/train.sbatch CFG); sbatch --dependency=afterany:$jid scripts/slurm/train.sbatch CFG
 sbatch --gpus=v100-32:2 scripts/slurm/train.sbatch CFG                  # 2 GPUs -> torchrun DDP
+# AdcSR: its env must be passed explicitly (sessions here may set SBATCH_EXPORT=NONE); v100-32 or h100-80
+sbatch --export=ALL,SRBENCH_ENV=/ocean/projects/cis250179p/purohit/super-res/envs/adcsr --gpus=h100-80:1 \
+       scripts/slurm/train.sbatch options/train/AdcSR/train_AdcSR_x4.yml
 ```
 
 **Weights & Biases** (optional, mirrors tensorboard: losses, val metrics, LR|SR|GT panels): `wandb login` once, then
@@ -118,10 +135,12 @@ Everything BasicSR offers works the same way: `--debug` (tiny intervals, name pr
 
 Measured on one V100-16GB (batch 16, ×4, fp32): RRDBNet 0.33 s/iter (10.6 GB), SwinIR 0.51 s/iter (14.3 GB
 allocated, ~15.5 GB reserved — it fits, but the sbatch default `v100-32` leaves headroom; for ×8 or larger batches
-use `use_checkpoint: true` or a 32/80 GB GPU). Data loading (memory-mapped cache) is ~1 ms/iter once warm.
+use `use_checkpoint: true` or a 32/80 GB GPU), EDSR-L 0.35 s/iter (5.4 GB), EDSR-M 0.04 s/iter (0.9 GB). Data
+loading (memory-mapped cache) is ~1 ms/iter once warm.
 
 ×8 (`*_x8.yml`, 384 px targets): RRDBNet bs16 needs 14.6 GB and SwinIR bs16 does not fit 16 GB → use a 32 GB
-GPU (sbatch default); ESRGAN ×8 defaults to batch 8.
+GPU (sbatch default); ESRGAN ×8 defaults to batch 8; EDSR-L ×8 bs16 needs 12.2 GB + cuDNN workspace and ~1 s/iter
+(~83 h → two chained 48 h jobs).
 
 ### Pipeline validation (2026-09-27)
 
@@ -136,10 +155,16 @@ are **not benchmark numbers**, because that temporary split is not the final one
 | SwinIR | 2.5k | L1 0.098 → 0.083 | 17.09 → **19.63** / 0.379 | – |
 | ESRGAN (from the RRDBNet run) | 1.5k | perceptual 1.37 → 1.31, D balanced | 19.83 → 19.65 / 0.397 | 0.683 → **0.459** |
 
+EDSR (added 2026-09-29, checked on the final split, same 500 `val_clean` tiles): EDSR-M 2k iterations, L1
+0.092 → 0.071, PSNR 16.86 → **19.99** / 0.378, resumed from iteration 1k; EDSR-L 1k iterations, L1 0.093 → 0.074,
+PSNR 17.38 → **18.74** / 0.343. Logs: `experiments/smoke_EDSR_{M,L}x4`.
+
 ## Testing
 
 ```bash
 python srbench/test.py -opt options/test/ESRGAN/test_RRDBNet_PSNR_x4.yml     # or sbatch scripts/slurm/test.sbatch ...
+envs/adcsr/bin/python srbench/test.py -opt options/test/AdcSR/test_AdcSR_x4.yml           # trained AdcSR
+envs/adcsr/bin/python srbench/test.py -opt options/test/AdcSR/test_AdcSR_x4_official.yml  # released AdcSR, zero-shot
 ```
 
 Evaluates `test_clean` (headline numbers) and `test` (incl. QA-flagged pairs) with PSNR / SSIM (RGB, 4 px
@@ -151,13 +176,16 @@ Detailed documentation of the data analysis, methods, validation and decisions: 
 ## Differences from BasicSR
 
 Ported (Apache-2.0, see `LICENSE.BasicSR.txt`): registries, option parsing, logger, `SRModel`, `SRGANModel`,
-`ESRGANModel`, `SwinIRModel`, losses, PSNR/SSIM, schedulers, `RRDBNet`, `SwinIR`, `VGGStyleDiscriminator`.
+`ESRGANModel`, `SwinIRModel`, losses, PSNR/SSIM, schedulers, `RRDBNet`, `SwinIR`, `EDSR`, `VGGStyleDiscriminator`.
 Changes:
 
 * `S2MaxarDataset` (multispectral uint16 LR, memory-mapped cache, spatial split lists); batched validation.
 * `RRDBNet`: ×8 (third nearest+conv stage; ×4 is unchanged, so official weights still load).
-  `SwinIR`: `out_chans` (12 bands in, RGB out). `VGGStyleDiscriminator`: any input size divisible by 32 (192).
+  `SwinIR`: `out_chans` (12 bands in, RGB out). `SwinIR`/`EDSR`: the DIV2K RGB mean shift is applied only to
+  3-channel inputs/outputs (z-scored S2 bands are already zero-mean). `VGGStyleDiscriminator`: any input size divisible by 32 (192).
   `BicubicBaseline` arch; LPIPS metric.
+* `AdcSR` / `AdcSRDiscriminator` archs and `AdcSRModel` ported from the AdcSR repo (not part of BasicSR; RAM/DAPE code
+  vendored in `srbench/third_party/`); `logger.keep_last: N` keeps only the N newest checkpoints (multi-GB models).
 * Fixes: SwinIR `use_checkpoint=True` crashed (`x_size` not passed); `test_selfensemble` without EMA; auto-resume
   looked for states relative to the CWD; `torch.load` with `weights_only` for torch ≥ 2.6; torchvision
   `pretrained=` removal; the training loop kept iterating over leftover epochs after `total_iter`.

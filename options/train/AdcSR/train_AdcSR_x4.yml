@@ -1,0 +1,145 @@
+# AdcSR (Chen et al., CVPR 2025): one-step diffusion SR; stage 2 = adversarial distillation from OSEDiff.
+# Reference: github.com/Guaishou74851/AdcSR train.py (LSDIR + Real-ESRGAN degradations, 512 px HR, batch 12 x 8 GPUs,
+# 200 epochs x 1000 iterations, lr 1e-4 halved after epoch 100, D lr 1e-6, fp16), and the cross-sensor recipe used
+# with it on SEN2NAIP (S2 RGB / 10000 -> HR RGB / 255, batch 16 on 1 GPU, same optimiser settings).
+# Here: S2 B04/B03/B02 reflectance (48 px) -> Maxar RGB at 2.5 m (192 px), batch 16 x 200k iterations.
+# The student starts from SD 2.1-base (pruned) + the stage-1 half decoder, as upstream.
+# Weights: envs/adcsr/bin/python scripts/download_adcsr_weights.py
+# Environment: envs/adcsr (requirements-adcsr.txt), e.g.
+#   sbatch --export=ALL,SRBENCH_ENV=/ocean/projects/cis250179p/purohit/super-res/envs/adcsr scripts/slurm/train.sbatch <this file>
+
+# general settings
+name: AdcSR_x4_S2Maxar_RGB_200k_B16G1
+model_type: AdcSRModel
+scale: 4
+num_gpu: 1  # needs a GPU (fp16 autocast)
+manual_seed: 0
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: S2Maxar_train
+    type: S2MaxarDataset
+    dataroot: datasets/s2maxar
+    meta_info_file: datasets/s2maxar/meta_info/train_clean.txt
+    io_backend:
+      type: npy
+    lq_source: s2
+    lq_bands: [3, 2, 1]    # B04, B03, B02: the SD-based networks take RGB
+    lq_norm: reflectance   # /10000 (clamped to [0, 1] by the network), as in the SEN2NAIP recipe
+
+    gt_size: 192           # the full x4 tile (LR 48 -> latent 24)
+    use_hflip: true
+    use_rot: false         # upstream: horizontal flips only
+
+    # data loader
+    num_worker_per_gpu: 4
+    batch_size_per_gpu: 16
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+    pin_memory: true
+    persistent_workers: true
+
+  val:
+    name: S2Maxar_val
+    type: S2MaxarDataset
+    dataroot: datasets/s2maxar
+    meta_info_file: datasets/s2maxar/meta_info/val_clean.txt
+    max_samples: 500
+    io_backend:
+      type: npy
+    lq_bands: [3, 2, 1]
+    lq_norm: reflectance
+    batch_size_per_gpu: 16
+    num_worker_per_gpu: 2
+
+# network structures
+network_g:
+  type: AdcSR
+  sd_model: &sd_model experiments/pretrained_models/stable-diffusion-2-1-base  # or the HF id Manojb/stable-diffusion-2-1-base
+  half_decoder: experiments/pretrained_models/AdcSR/halfDecoder.ckpt
+  sd_init: true            # initialise the pruned U-Net from SD 2.1 (upstream stage 2)
+  color_fix: false         # upstream test-time colour matching to the LR; off: S2 and Maxar radiometry differ
+
+network_d:
+  type: AdcSRDiscriminator
+  sd_model: *sd_model
+  num_in_ch: 256
+  lora_rank: 4
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  pretrain_network_d: ~    # trainable discriminator weights only (LoRA + input conv)
+  resume_state: ~
+
+# training settings
+train:
+  ema_decay: 0             # upstream trains without EMA
+  adcsr_opt:
+    sd_model: *sd_model
+    ram: experiments/pretrained_models/AdcSR/ram_swin_large_14m.pth
+    dape: experiments/pretrained_models/AdcSR/DAPE.pth
+    osediff: experiments/pretrained_models/AdcSR/osediff.pkl
+    distill_target: teacher  # teacher = OSEDiff features (upstream) | gt = GT features (no teacher)
+    distill_weight: 1.0
+    adv_weight: 1.0
+    amp: true              # fp16 autocast + loss scaling, as upstream
+
+  optim_g:
+    type: Adam
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.999]    # torch defaults, as upstream
+  optim_d:                 # LoRA + input conv of the discriminator; constant lr (not scheduled), as upstream
+    type: Adam
+    lr: !!float 1e-6
+    weight_decay: 0
+    betas: [0.9, 0.999]
+
+  scheduler:               # generator only
+    type: MultiStepLR
+    milestones: [100000]
+    gamma: 0.5
+
+  total_iter: 200000
+  warmup_iter: -1  # no warm up
+
+# validation settings
+val:
+  val_freq: !!float 5e3
+  save_img: true
+  max_save_img: 8
+  save_best: lpips         # perceptual model -> keep the best LPIPS checkpoint
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: false
+    lpips:
+      type: calculate_lpips
+      crop_border: 4
+      better: lower
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e3
+  keep_last: 2             # the student is 1.8 GB and its training state 3.6 GB: keep only the 2 newest of each
+  use_tb_logger: true
+  wandb:                 # W&B mirrors tensorboard; set project to enable (needs `wandb login`)
+    project: ~
+    entity: ~              # W&B user/team; ~ = your default
+    group: ~
+    resume_id: ~           # normally ~: resumed jobs reuse experiments/<name>/wandb_id.txt
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "srbench"
 version = "0.1.0"
-description = "BasicSR-style super-resolution benchmark (Sentinel-2 -> Maxar): ESRGAN, SwinIR"
+description = "BasicSR-style super-resolution benchmark (Sentinel-2 -> Maxar): ESRGAN, SwinIR, EDSR, AdcSR"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.1",
@@ -28,6 +28,10 @@ dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 include = ["srbench*"]
+
+[tool.setuptools.package-data]
+"srbench.third_party" = ["README.md", "LICENSE.AdcSR.txt"]
+"srbench.third_party.ram" = ["configs/*.json", "configs/swin/*.json", "data/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

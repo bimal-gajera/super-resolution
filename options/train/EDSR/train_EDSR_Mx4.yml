@@ -1,0 +1,122 @@
+# EDSR baseline (EDSR-M: 16 residual blocks, 64 features, res_scale 1), L1 only.
+# Reference: BasicSR options/train/EDSR/train_EDSR_Mx4.yml (DIV2K, 300k iters, lr 1e-4 halved at 200k, x4 initialised
+# from the x2 model). Here: trained from scratch (no x2 stage), same batch 16 x 300k budget as RRDBNet and SwinIR.
+# V100 measurement (model step only): bs16 = 0.9 GB peak, 0.05 s/iter.
+
+# general settings
+name: EDSR_Mx4_S2Maxar_f64b16_300k_B16G1
+model_type: SRModel
+scale: 4
+num_gpu: 1  # set num_gpu: 0 for cpu mode
+manual_seed: 0
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: S2Maxar_train
+    type: S2MaxarDataset
+    dataroot: datasets/s2maxar
+    meta_info_file: datasets/s2maxar/meta_info/train_clean.txt
+    io_backend:
+      type: npy
+    lq_source: s2
+    lq_bands: ~
+    lq_norm: meanstd
+
+    gt_size: 192           # = LR patch 48 (BasicSR: 192 HR / 48 LR), the full x4 tile
+    use_hflip: true
+    use_rot: true
+
+    # data loader
+    num_worker_per_gpu: 4
+    batch_size_per_gpu: 16
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+    pin_memory: true
+    persistent_workers: true
+
+  val:
+    name: S2Maxar_val
+    type: S2MaxarDataset
+    dataroot: datasets/s2maxar
+    meta_info_file: datasets/s2maxar/meta_info/val_clean.txt
+    max_samples: 500
+    io_backend:
+      type: npy
+    lq_norm: meanstd
+    batch_size_per_gpu: 16
+    num_worker_per_gpu: 2
+
+# network structures
+network_g:
+  type: EDSR
+  num_in_ch: 12            # = len(lq_bands)
+  num_out_ch: 3
+  num_feat: 64
+  num_block: 16
+  upscale: 4
+  res_scale: 1
+  img_range: 255.
+  rgb_mean: [0.4488, 0.4371, 0.4040]  # added to the RGB output only; the z-scored S2 input is already zero-mean
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  ema_decay: 0.999
+  optim_g:
+    type: Adam
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [200000]
+    gamma: 0.5
+
+  total_iter: 300000
+  warmup_iter: -1  # no warm up
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+# validation settings
+val:
+  val_freq: !!float 5e3
+  save_img: true
+  max_save_img: 8
+  save_best: psnr
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:                 # W&B mirrors tensorboard; set project to enable (needs `wandb login`)
+    project: ~
+    entity: ~              # W&B user/team; ~ = your default
+    group: ~
+    resume_id: ~           # normally ~: resumed jobs reuse experiments/<name>/wandb_id.txt
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

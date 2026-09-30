@@ -1,0 +1,32 @@
+# Environment for AdcSR (conda env: /ocean/projects/cis250179p/purohit/super-res/envs/adcsr, Python 3.10).
+# AdcSR's DAPE/RAM prompt extractor imports transformers/timm internals removed in newer releases, so the diffusion stack
+# keeps the versions pinned by the AdcSR repo (requirements.txt there); srbench itself runs unchanged on torch 2.4.
+#   conda create -p envs/adcsr python=3.10 -y
+#   envs/adcsr/bin/pip install -r requirements-adcsr.txt --extra-index-url https://download.pytorch.org/whl/cu121
+#   envs/adcsr/bin/pip install -e . --no-deps
+# --- AdcSR (github.com/Guaishou74851/AdcSR requirements.txt; torchaudio and pillow pins dropped: unused) ---
+torch==2.4.1
+torchvision==0.19.1
+xformers==0.0.28.post1
+fairscale==0.4.13
+loralib==0.1.2
+timm==0.9.16
+transformers==4.37.2
+diffusers==0.32.2
+peft==0.13.2
+omegaconf==2.3.0
+pytorch-lightning==2.4.0   # halfDecoder.ckpt is a Lightning checkpoint
+pyiqa==0.1.13
+opencv-python-headless==4.11.0.86
+# --- srbench ---
+numpy<2
+tifffile
+imagecodecs
+pyyaml
+tqdm
+tensorboard
+scipy
+lpips
+matplotlib
+wandb
+pytest

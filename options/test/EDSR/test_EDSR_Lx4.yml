@@ -1,0 +1,69 @@
+name: EDSR_Lx4_S2Maxar
+model_type: SRModel
+scale: 4
+num_gpu: 1  # set num_gpu: 0 for cpu mode
+manual_seed: 0
+
+# dataset settings: test_clean = headline benchmark numbers; test_all additionally contains the pairs flagged
+# by the QA filter (S2 clouds / Maxar-S2 mismatch), reported for transparency.
+datasets:
+  test_1:
+    name: S2Maxar_test_clean
+    type: S2MaxarDataset
+    dataroot: datasets/s2maxar
+    meta_info_file: datasets/s2maxar/meta_info/test_clean.txt
+    io_backend:
+      type: npy
+    lq_norm: meanstd
+    batch_size_per_gpu: 16
+    num_worker_per_gpu: 4
+  test_2:
+    name: S2Maxar_test_all
+    type: S2MaxarDataset
+    dataroot: datasets/s2maxar
+    meta_info_file: datasets/s2maxar/meta_info/test.txt
+    io_backend:
+      type: npy
+    lq_norm: meanstd
+    batch_size_per_gpu: 16
+    num_worker_per_gpu: 4
+
+# network structures
+network_g:
+  type: EDSR
+  num_in_ch: 12
+  num_out_ch: 3
+  num_feat: 256
+  num_block: 32
+  upscale: 4
+  res_scale: 0.1
+  img_range: 255.
+  rgb_mean: [0.4488, 0.4371, 0.4040]
+
+# path
+path:
+  pretrain_network_g: experiments/EDSR_Lx4_S2Maxar_f256b32_300k_B16G1/models/net_g_latest.pth
+  param_key_g: params_ema  # net_g_best.pth only holds 'params' (= the EMA weights when EMA is used)
+  strict_load_g: true
+
+# validation settings
+val:
+  save_img: true
+  max_save_img: 100        # SR PNGs (+ LR|SR|GT panels) for the first 100 tiles; ~ = all
+  save_panel: true
+  self_ensemble: false     # x8 flip/transpose ensemble
+  suffix: ~  # add suffix to saved images, if None, use exp name
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: false
+    lpips:
+      type: calculate_lpips
+      crop_border: 4
+      better: lower

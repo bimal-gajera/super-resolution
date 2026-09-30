@@ -110,6 +110,7 @@ def test_arch_shapes(scale):
         dict(type='RRDBNet', num_in_ch=12, num_out_ch=3, scale=scale, num_feat=16, num_block=1, num_grow_ch=8),
         dict(type='SwinIR', upscale=scale, in_chans=12, out_chans=3, img_size=16, window_size=8, depths=[2],
              embed_dim=24, num_heads=[2], mlp_ratio=2, upsampler='pixelshuffle'),
+        dict(type='EDSR', num_in_ch=12, num_out_ch=3, num_feat=16, num_block=2, upscale=scale, res_scale=0.1),
         dict(type='BicubicBaseline', num_in_ch=12, num_out_ch=3, scale=scale),
     ]
     for opt in nets:
@@ -130,3 +131,25 @@ def test_metrics_sanity():
     psnr = calculate_metric(data, {'type': 'calculate_psnr', 'crop_border': 4})
     assert 30 < psnr < 40
     assert calculate_metric({'img': img, 'img2': img}, {'type': 'calculate_ssim', 'crop_border': 4}) == pytest.approx(1)
+
+
+ADCSR_WEIGHTS = os.path.join(REPO, 'experiments', 'pretrained_models')
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(ADCSR_WEIGHTS, 'AdcSR', 'net_params_200.pkl')),
+                    reason='AdcSR weights not downloaded (scripts/download_adcsr_weights.py)')
+def test_adcsr_matches_released_weights():
+    """The ported student has exactly the parameter names/shapes of the released AdcSR model (envs/adcsr only)."""
+    pytest.importorskip('diffusers')
+    net = build_network(dict(type='AdcSR', sd_model=os.path.join(ADCSR_WEIGHTS, 'stable-diffusion-2-1-base'),
+                             half_decoder=os.path.join(ADCSR_WEIGHTS, 'AdcSR', 'halfDecoder.ckpt'), sd_init=False))
+    released = torch.load(os.path.join(ADCSR_WEIGHTS, 'AdcSR', 'net_params_200.pkl'), map_location='cpu',
+                          weights_only=True)
+    released = {k.removeprefix('module.'): v for k, v in released.items()}
+    ours = net.state_dict()
+    assert set(released) <= set(ours) and all(k.startswith('tail.') for k in set(ours) - set(released))
+    assert all(ours[k].shape == v.shape for k, v in released.items())
+    net.load_state_dict(released, strict=False)
+    with torch.no_grad():
+        out = net(torch.rand(1, 3, 16, 16))
+    assert out.shape == (1, 3, 64, 64) and torch.isfinite(out).all()

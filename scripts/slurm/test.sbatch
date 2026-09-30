@@ -11,7 +11,7 @@
 set -euo pipefail
 CFG=${1:?usage: sbatch scripts/slurm/test.sbatch <options/test/...yml> [extra test.py args]}
 shift
-ENV=/ocean/projects/cis250179p/purohit/super-res/envs/srbench
+ENV=${SRBENCH_ENV:-/ocean/projects/cis250179p/purohit/super-res/envs/srbench}  # AdcSR: SRBENCH_ENV=<...>/envs/adcsr
 export PATH=$ENV/bin:$PATH
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/../..}"
 python srbench/test.py -opt "$CFG" "$@"

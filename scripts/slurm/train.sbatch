@@ -6,6 +6,8 @@
 # Always runs with --auto_resume: resubmitting the same config continues from the latest training state, so
 # runs longer than the 48 h walltime can be chained:
 #   jid=$(sbatch --parsable scripts/slurm/train.sbatch CFG); sbatch --dependency=afterany:$jid scripts/slurm/train.sbatch CFG
+# AdcSR runs in its own environment (requirements-adcsr.txt):
+#   sbatch --export=ALL,SRBENCH_ENV=/ocean/projects/cis250179p/purohit/super-res/envs/adcsr scripts/slurm/train.sbatch options/train/AdcSR/train_AdcSR_x4.yml
 #SBATCH -J srbench-train
 #SBATCH -A cis250179p
 #SBATCH -p GPU-shared
@@ -16,7 +18,7 @@
 set -euo pipefail
 CFG=${1:?usage: sbatch scripts/slurm/train.sbatch <options/train/...yml> [extra train.py args]}
 shift
-ENV=/ocean/projects/cis250179p/purohit/super-res/envs/srbench
+ENV=${SRBENCH_ENV:-/ocean/projects/cis250179p/purohit/super-res/envs/srbench}  # AdcSR: SRBENCH_ENV=<...>/envs/adcsr
 export PATH=$ENV/bin:$PATH
 export OMP_NUM_THREADS=1
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/../..}"
