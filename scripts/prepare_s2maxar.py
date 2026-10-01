@@ -287,6 +287,18 @@ def is_clean(r, args):
     return float(r['corr']) >= args.min_corr or flat
 
 
+def maxar_rgb_stats(out, row, sample, scale):
+    """Per-channel mean / std of the Maxar RGB targets (in [0, 1]) over the ``sample`` tiles: the colours a pretrained
+    RGB model is shown the S2 RGB bands in (``path.pretrain_rgb_input``, docs/02 §2.2)."""
+    gt = np.load(osp.join(out, f'gt_x{scale}.npy'), mmap_mode='r')
+    s, s2, n = np.zeros(3), np.zeros(3), 0
+    for k in sample:
+        t = gt[row[k]].reshape(-1, 3).astype(np.float64) / 255
+        s, s2, n = s + t.sum(0), s2 + (t**2).sum(0), n + len(t)
+    mean = s / n
+    return {'maxar_mean': mean.round(4).tolist(), 'maxar_std': np.sqrt(s2 / n - mean**2).round(4).tolist()}
+
+
 def write_lists(args, keys):
     out = args.out
     with open(osp.join(out, 'qa.csv')) as f:
@@ -319,6 +331,7 @@ def write_lists(args, keys):
     summary['s2_bands'] = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B11', 'B12']
     summary['s2_mean'] = x.mean(0).round(3).tolist()
     summary['s2_std'] = x.std(0).round(3).tolist()
+    summary.update(maxar_rgb_stats(out, row, sample, min(args.scales)))
     summary['stats_from'] = f'{len(sample)} train_clean tiles'
     with open(osp.join(out, 'stats.json'), 'w') as f:
         json.dump(summary, f, indent=2)

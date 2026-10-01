@@ -1,4 +1,5 @@
-"""Generate the x16 / x32 train and test configs from the x4 ones (rerun after changing an x4 recipe).
+"""Generate the x16 / x32 train and test configs from the x4 ones (rerun after changing an x4 recipe; then rerun
+scripts/make_pretrained_configs.py for the _pretrained variants).
 
     python scripts/make_scale_configs.py            # writes options/{train,test}/*/*x16*, *x32*
 

@@ -20,6 +20,34 @@ def _atomic_save(obj, path):
     os.replace(tmp, path)
 
 
+def inflate_rgb_input(crt_net, load_net, channels, mean=(0., 0., 0.), std=(1., 1., 1.), rgb_mean=(0., 0., 0.),
+                      img_range=1.):
+    """srbench: adapt RGB-pretrained weights to a multi-band input (``path.pretrain_rgb_input``).
+
+    A conv weight with 3 input channels in the checkpoint but a different number in the current network
+    (``conv_first``) is spread onto ``channels`` (the input channels holding R, G, B, e.g. [3, 2, 1] = B04, B03, B02);
+    the other bands start at 0, so the loaded network initially responds to the RGB bands only. The RGB model computes
+    ``conv((x - rgb_mean) * img_range)`` on an image x in [0, 1]; each (z-scored) band z is shown to it as
+    ``x = mean + std * z`` (the S2 RGB colour-matched to Maxar), which folds into the weights as
+    ``W' = W * std`` and ``b' = b + img_range * sum(W * (mean - rgb_mean))`` (exact except at zero-padded borders).
+    """
+    scale = torch.tensor(std).view(1, 3, 1, 1)
+    offset = (torch.tensor(mean) - torch.tensor(rgb_mean)).view(1, 3, 1, 1)
+    for k, v in list(load_net.items()):
+        crt = crt_net.get(k)
+        if (crt is not None and v.dim() == 4 and v.shape[1] == 3 and crt.shape[1] != 3
+                and crt.shape[:1] + crt.shape[2:] == v.shape[:1] + v.shape[2:]):
+            w = v.new_zeros(crt.shape)
+            w[:, list(channels)] = v * scale.to(v)
+            load_net[k] = w
+            bias = k[:-len('weight')] + 'bias'
+            if bias in load_net:
+                load_net[bias] = load_net[bias] + img_range * (v * offset.to(v)).sum((1, 2, 3))
+            get_root_logger().info(f'Pretrained RGB filters of [{k}] mapped to input channels {list(channels)} '
+                                   f'(shown as mean {list(mean)} + std {list(std)} * band); '
+                                   f'the other {crt.shape[1] - 3} channels start at 0.')
+
+
 class BaseModel():
     """Base model."""
 
@@ -340,6 +368,10 @@ class BaseModel():
             if k.startswith('module.'):
                 load_net[k[7:]] = v
                 load_net.pop(k)
+        rgb_input = self.opt['path'].get('pretrain_rgb_input')
+        if rgb_input is not None:  # srbench: RGB-pretrained weights -> multi-band input
+            inflate_rgb_input(net.state_dict(), load_net, img_range=self.opt['network_g'].get('img_range', 1.),
+                              **rgb_input)
         self._print_different_keys_loading(net, load_net, strict)
         net.load_state_dict(load_net, strict=strict)
 

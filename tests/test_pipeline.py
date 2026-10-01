@@ -16,6 +16,7 @@ import prepare_s2maxar as prep  # noqa: E402
 from srbench.archs import build_network  # noqa: E402
 from srbench.data.s2maxar_dataset import S2MaxarDataset  # noqa: E402
 from srbench.metrics import calculate_metric  # noqa: E402
+from srbench.models.base_model import inflate_rgb_input  # noqa: E402
 
 KEYS = ['1030010076672300_120200222032_0011_MAXAR', '1030010076672300_120200222032_MAXAR_0012',
         '10400100889ABF00_302000123001_0005_MAXAR']
@@ -59,7 +60,7 @@ def test_prepare_outputs(data_root):
     assert np.load(out / 'lq_s2.npy', mmap_mode='r').shape == (3, 48, 48, 12)
     assert np.load(out / 'gt_x4.npy', mmap_mode='r').shape == (3, 192, 192, 3)
     stats = json.loads((out / 'stats.json').read_text())
-    assert len(stats['s2_mean']) == 12 and stats['n_unreadable'] == 0
+    assert len(stats['s2_mean']) == 12 and len(stats['maxar_mean']) == 3 and stats['n_unreadable'] == 0
 
 
 def test_add_scales(data_root):
@@ -130,6 +131,22 @@ def test_arch_shapes(scale):
     ]
     for opt in nets:
         assert build_network(opt)(x).shape == (1, 3, 16 * scale, 16 * scale), opt['type']
+
+
+def test_inflate_rgb_input():
+    """RGB-pretrained conv_first on the 12-band input == the RGB model on the colour-matched RGB bands."""
+    rng = torch.Generator().manual_seed(0)
+    w, b = torch.randn(8, 3, 3, 3, generator=rng), torch.randn(8, generator=rng)
+    load = {'conv_first.weight': w.clone(), 'conv_first.bias': b.clone()}
+    crt = {'conv_first.weight': torch.zeros(8, 12, 3, 3), 'conv_first.bias': torch.zeros(8)}
+    mean, std, rgb_mean, img_range = [0.41, 0.37, 0.33], [0.21, 0.15, 0.13], [0.4488, 0.4371, 0.4040], 255.
+    inflate_rgb_input(crt, load, [3, 2, 1], mean, std, rgb_mean, img_range)
+    z = torch.randn(2, 12, 16, 16, generator=rng)  # z-scored bands
+    x = torch.tensor(mean).view(1, 3, 1, 1) + torch.tensor(std).view(1, 3, 1, 1) * z[:, [3, 2, 1]]
+    ours = torch.nn.functional.conv2d(z * img_range, load['conv_first.weight'], load['conv_first.bias'], padding=1)
+    rgb = torch.nn.functional.conv2d((x - torch.tensor(rgb_mean).view(1, 3, 1, 1)) * img_range, w, b, padding=1)
+    assert torch.allclose(ours[..., 1:-1, 1:-1], rgb[..., 1:-1, 1:-1], rtol=1e-4, atol=1e-2)  # interior: exact
+    assert not load['conv_first.weight'][:, [0, 4, 5, 6, 7, 8, 9, 10, 11]].any()
 
 
 def test_discriminator_sizes():
