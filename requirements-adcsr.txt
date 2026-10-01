@@ -18,6 +18,9 @@ omegaconf==2.3.0
 pytorch-lightning==2.4.0   # halfDecoder.ckpt is a Lightning checkpoint
 pyiqa==0.1.13
 opencv-python-headless==4.11.0.86
+# --- benchmark metrics (scripts/compute_metrics.py; CLIP comes with transformers) ---
+torchmetrics==1.9.0
+torch-fidelity==0.3.0
 # --- srbench ---
 numpy<2
 tifffile

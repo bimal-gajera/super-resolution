@@ -39,6 +39,8 @@ def data_root(tmp_path_factory):
                 '--split-level', '1', '--split-ratios', '0.34', '0.33', '0.33']
     try:
         prep.main()
+        sys.argv = ['prep', '--src', str(src), '--out', str(out), '--add-scales', '16', '--workers', '1']
+        prep.main()  # a scale added afterwards, as x16 / x32 for the real data
     finally:
         sys.argv = sys_argv
     return src, out
@@ -58,6 +60,19 @@ def test_prepare_outputs(data_root):
     assert np.load(out / 'gt_x4.npy', mmap_mode='r').shape == (3, 192, 192, 3)
     stats = json.loads((out / 'stats.json').read_text())
     assert len(stats['s2_mean']) == 12 and stats['n_unreadable'] == 0
+
+
+def test_add_scales(data_root):
+    """--add-scales writes gt_x16.npy (INTER_AREA from the raw tile) without touching the existing arrays."""
+    src, out = data_root
+    keys = (out / 'keys.txt').read_text().split()
+    gt16 = np.load(out / 'gt_x16.npy', mmap_mode='r')
+    assert gt16.shape == (3, 768, 768, 3)
+    for i, k in enumerate(keys):
+        raw = tifffile.imread(src / 'Maxar' / f'{k}.tif')
+        assert np.array_equal(gt16[i], cv2.resize(raw, (768, 768), interpolation=cv2.INTER_AREA))
+    s = S2MaxarDataset(_opt(out, scale=16))[0]
+    assert s['gt'].shape == (3, 768, 768)
 
 
 def test_split_is_group_disjoint():
@@ -103,7 +118,7 @@ def test_band_subset_and_bicubic_source(data_root):
     assert s['lq'].shape == (3, 48, 48) and 0 <= s['lq'].min() and s['lq'].max() <= 1
 
 
-@pytest.mark.parametrize('scale', [4, 8])
+@pytest.mark.parametrize('scale', [4, 8, 16, 32])
 def test_arch_shapes(scale):
     x = torch.randn(1, 12, 16, 16)
     nets = [

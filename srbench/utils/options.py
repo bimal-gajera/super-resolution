@@ -101,7 +101,7 @@ def _abspath(path, root_path):
     return path if osp.isabs(path) else osp.join(root_path, path)
 
 
-def parse_options(root_path, is_train=True):
+def parse_options(root_path, is_train=True, argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('-opt', type=str, required=True, help='Path to option YAML file.')
     parser.add_argument('--launcher', choices=['none', 'pytorch', 'slurm'], default='none', help='job launcher')
@@ -110,7 +110,7 @@ def parse_options(root_path, is_train=True):
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument(
         '--force_yml', nargs='+', default=None, help='Force to update yml files. Examples: train:ema_decay=0.999')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)  # srbench: argv lets other scripts reuse the option parsing
 
     # parse yml to dict
     opt = yaml_load(args.opt)

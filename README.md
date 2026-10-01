@@ -13,6 +13,11 @@ options, `train.py`/`test.py` entry points, experiment folders) for benchmarking
 | EDSR (EDSR-L; EDSR-M = baseline size) | `options/{train,test}/EDSR/*EDSR_{L,M}x4.yml` | L1, 32 blocks × 256 feat, res_scale 0.1 (M: 16 × 64) |
 | AdcSR (one-step diffusion, CVPR 2025) | `options/{train,test}/AdcSR/*AdcSR_x4*.yml` | RGB input; SD 2.1-based student distilled from OSEDiff + adversarial loss; ×4 only; own env (below) |
 
+**Scales:** ×4 (default), ×8, ×16 and ×32: powers of 2, which all architectures support natively; ×32 (0.3125 m)
+stands in for the native ×33 (0.303 m). The ×16/×32 configs are generated from the ×4 ones by
+`scripts/make_scale_configs.py` and train on random crops (LR 32 / 16 px → HR 512); their targets are cached with
+`prepare_s2maxar.py --add-scales 16 32`. AdcSR is ×4 only.
+
 The PSNR-oriented models (RRDBNet, SwinIR, EDSR) share the same data budget (batch 16 × 300k iterations) so
 they are directly comparable; LR schedules follow the shape of the respective BasicSR configs.
 
@@ -157,7 +162,7 @@ are **not benchmark numbers**, because that temporary split is not the final one
 
 EDSR (added 2026-09-29, checked on the final split, same 500 `val_clean` tiles): EDSR-M 2k iterations, L1
 0.092 → 0.071, PSNR 16.86 → **19.99** / 0.378, resumed from iteration 1k; EDSR-L 1k iterations, L1 0.093 → 0.074,
-PSNR 17.38 → **18.74** / 0.343. Logs: `experiments/smoke_EDSR_{M,L}x4`.
+PSNR 17.38 → **18.74** / 0.343. Logs: `experiments/short_EDSR_{M,L}x4`.
 
 ## Testing
 
@@ -170,6 +175,25 @@ envs/adcsr/bin/python srbench/test.py -opt options/test/AdcSR/test_AdcSR_x4_offi
 Evaluates `test_clean` (headline numbers) and `test` (incl. QA-flagged pairs) with PSNR / SSIM (RGB, 4 px
 border crop, as in BasicSR) and LPIPS (AlexNet). Writes `results/<name>/metrics_<set>.csv` (per tile, e.g. to
 slice by QA columns), the averages in the log, SR PNGs and LR|SR|GT panels.
+
+### Benchmark table (7 metrics, native resolution)
+
+The comparison table is computed with the project's metric script, ported unchanged as
+`scripts/compute_metrics.py`. It scores at the **native Maxar resolution (1584 px)**: each model's ×4/×8 output is
+upsampled bicubically to 1584 px and compared with the original Maxar tile. **test-mini** = 500 evenly spaced
+`test_clean` tiles. Metrics: SSIM, PSNR, LPIPS, MSE (per tile, averaged), Inception Score, CLIP score
+(prediction-vs-GT image similarity, CLIP ViT-L/14-336), FID (FID/IS on native-resolution 299 px patches). Runs in
+`envs/adcsr` (torchmetrics, torch-fidelity, transformers).
+
+```bash
+sbatch scripts/slurm/benchmark.sbatch x4      # -> results/benchmark/test_mini_x4/results/test_mini_x4.csv
+sbatch scripts/slurm/benchmark.sbatch x8
+# by hand: python scripts/generate_sr.py --root R --reference; ... --root R --row ESRGAN -opt options/test/...yml;
+#          python scripts/compute_metrics.py --root R --models ESRGAN EDSR SwinIR
+```
+
+Output `test_mini_x4.csv`: rows = models, columns `SSIM,PSNR,LPIPS,MSE,Inception_Score,CLIP_SCORE,FID`; plus
+`summary.md/csv/json` (95 % CIs, whole-tile FID/IS, bicubic reference row) and `per_image.csv`.
 
 Detailed documentation of the data analysis, methods, validation and decisions: [`docs/`](docs/README.md).
 

@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn as nn
 from torch.nn import functional as F
@@ -80,7 +81,7 @@ class RRDBNet(nn.Module):
     Args:
         num_in_ch (int): Channel number of inputs (e.g. 12 for all Sentinel-2 L2A bands).
         num_out_ch (int): Channel number of outputs.
-        scale (int): Upsampling factor, one of 1, 2, 4, 8. Default: 4.
+        scale (int): Upsampling factor, one of 1, 2, 4, 8, 16, 32. Default: 4.
         num_feat (int): Channel number of intermediate features.
             Default: 64
         num_block (int): Block number in the trunk network. Defaults: 23
@@ -89,7 +90,7 @@ class RRDBNet(nn.Module):
 
     def __init__(self, num_in_ch, num_out_ch, scale=4, num_feat=64, num_block=23, num_grow_ch=32):
         super(RRDBNet, self).__init__()
-        assert scale in (1, 2, 4, 8), f'RRDBNet supports scale 1/2/4/8, got {scale}'
+        assert scale in (1, 2, 4, 8, 16, 32), f'RRDBNet supports scale 1/2/4/8/16/32, got {scale}'
         self.scale = scale
         if scale == 2:
             num_in_ch = num_in_ch * 4
@@ -101,8 +102,10 @@ class RRDBNet(nn.Module):
         # upsample
         self.conv_up1 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
         self.conv_up2 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
-        if scale == 8:
-            self.conv_up3 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
+        # srbench: x8 / x16 / x32 add one nearest x2 + conv stage per factor 2 (conv_up3 ... conv_up5); x4 is unchanged
+        self.num_up = int(math.log2(max(scale, 4)))
+        for i in range(3, self.num_up + 1):
+            setattr(self, f'conv_up{i}', nn.Conv2d(num_feat, num_feat, 3, 1, 1))
         self.conv_hr = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
         self.conv_last = nn.Conv2d(num_feat, num_out_ch, 3, 1, 1)
 
@@ -121,7 +124,7 @@ class RRDBNet(nn.Module):
         # upsample
         feat = self.lrelu(self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest')))
         feat = self.lrelu(self.conv_up2(F.interpolate(feat, scale_factor=2, mode='nearest')))
-        if self.scale == 8:
-            feat = self.lrelu(self.conv_up3(F.interpolate(feat, scale_factor=2, mode='nearest')))
+        for i in range(3, self.num_up + 1):
+            feat = self.lrelu(getattr(self, f'conv_up{i}')(F.interpolate(feat, scale_factor=2, mode='nearest')))
         out = self.conv_last(self.lrelu(self.conv_hr(feat)))
         return out

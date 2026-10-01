@@ -3,8 +3,8 @@
 Runs resumed across Slurm jobs have one event file per job; they are merged, and for iterations logged twice
 (job A ran past its last checkpoint, job B redid them) the later job's value is kept.
 
-    python scripts/plot_training.py smoke_RRDBNet_PSNR_x4 smoke_SwinIR_SRx4 smoke_ESRGAN_x4 \
-        --baseline Bicubic_x4_S2Maxar_linearcolor_5k_B16G1 --out experiments/smoke_curves.png
+    python scripts/plot_training.py short_RRDBNet_PSNR_x4 short_SwinIR_SRx4 short_ESRGAN_x4 \
+        --baseline Bicubic_x4_S2Maxar_linearcolor_5k_B16G1 --out experiments/short_runs_curves.png
 """
 import argparse
 import glob

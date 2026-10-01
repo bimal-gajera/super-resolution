@@ -50,8 +50,8 @@ def _to_tensor(img):
 class S2MaxarDataset(data.Dataset):
     """Paired Sentinel-2 (LR, 10 m, 12 bands) -> Maxar (HR, RGB) dataset.
 
-    The HR target is the Maxar tile (0.303 m) area-downsampled to ``48 * scale`` pixels, i.e. 2.5 m for x4 and
-    1.25 m for x8. Both backends produce identical samples.
+    The HR target is the Maxar tile (0.303 m) area-downsampled to ``48 * scale`` pixels, i.e. 2.5 m for x4, 1.25 m
+    for x8, 0.625 m for x16 and 0.3125 m for x32. Both backends produce identical samples.
 
     Args:
         opt (dict): Config for the dataset. It contains the following keys:
@@ -115,7 +115,7 @@ class S2MaxarDataset(data.Dataset):
             self.lq_file = osp.join(self.dataroot, 'lq_s2.npy')
             self.gt_file = osp.join(self.dataroot, f'gt_x{self.scale}.npy')
             if not osp.exists(self.gt_file):
-                raise FileNotFoundError(f'{self.gt_file} not found: run scripts/prepare_s2maxar.py --scales {self.scale}')
+                raise FileNotFoundError(f'{self.gt_file} not found: run scripts/prepare_s2maxar.py --add-scales {self.scale}')
         self._lq = self._gt = None  # memmaps are opened lazily in each dataloader worker
 
     @property

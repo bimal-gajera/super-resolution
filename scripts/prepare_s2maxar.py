@@ -15,6 +15,8 @@ Stages (all written to ``--out``):
    ``gt_x{s}.npy``         (N, 48s, 48s, 3) uint8 Maxar tiles area-downsampled to 48*s px, for each ``--scales``.
    ``qa.csv``              per-pair QA (nodata, S2<->Maxar correlation, texture, brightness, residual shift).
    Caching is resumable: rerunning the script skips rows already listed in qa.csv.
+   ``--add-scales 16 32`` adds HR arrays to an existing cache without rewriting anything else (resumable via
+   ``add_scales_<s>.done``).
 3. ``meta_info/{train,val,test}.txt``  spatially disjoint split: whole quadkey groups (prefix of length
    ``--split-level``) are assigned to one split, so overlapping / repeated acquisitions never leak across splits.
    ``meta_info/*_clean.txt``  the same lists after the QA filter (see ``is_clean``).
@@ -124,6 +126,63 @@ def _process(job):
     except Exception as e:  # noqa: BLE001 - record and continue
         rec['error'] = f'{type(e).__name__}: {e}'.replace(',', ';').replace('\n', ' ')
     return rec
+
+
+def _process_gt(job):
+    """--add-scales: write only the HR arrays of the added scales for one pair."""
+    import cv2
+    import tifffile
+    row, key = job
+    try:
+        hr = tifffile.imread(osp.join(_W['src'], 'Maxar', key + '.tif'))
+        if hr.shape != (HR_NATIVE, HR_NATIVE, 3) or hr.dtype != np.uint8:
+            raise ValueError(f'unexpected Maxar shape/dtype {hr.shape} {hr.dtype}')
+        for s in _W['scales']:
+            size = LR_SIZE * s
+            arr = hr if size == HR_NATIVE else cv2.resize(hr, (size, size), interpolation=cv2.INTER_AREA)
+            buf = np.ascontiguousarray(arr).tobytes()
+            os.pwrite(_W['fds'][f'gt_x{s}.npy'], buf, _W['offsets'][f'gt_x{s}.npy'] + row * len(buf))
+        return row, ''
+    except Exception as e:  # noqa: BLE001 - report and continue
+        return row, f'{type(e).__name__}: {e}'
+
+
+def add_scales(args, keys):
+    """Add HR arrays (e.g. gt_x16.npy, gt_x32.npy) to an existing cache; resumable via add_scales_<s>.done."""
+    out, scales = args.out, sorted(args.add_scales)
+    offsets = {}
+    for s in scales:
+        path, full = osp.join(out, f'gt_x{s}.npy'), (len(keys), LR_SIZE * s, LR_SIZE * s, 3)
+        if osp.exists(path):
+            mm = np.load(path, mmap_mode='r')
+            if mm.shape != full or mm.dtype != np.uint8:
+                sys.exit(f'{path} exists with shape {mm.shape}, expected {full}; remove it first')
+        else:
+            mm = np.lib.format.open_memmap(path, mode='w+', dtype=np.uint8, shape=full)
+        offsets[f'gt_x{s}.npy'] = mm.offset
+        del mm
+    done_path = osp.join(out, 'add_scales_' + '_'.join(map(str, scales)) + '.done')
+    done = set()
+    if osp.exists(done_path):
+        with open(done_path) as f:
+            done = {int(line) for line in f if line.strip().isdigit()}
+    todo = [(i, k) for i, k in enumerate(keys) if i not in done]
+    print(f'add scales {scales}: {len(keys)} pairs, {len(done)} already done, {len(todo)} to process', flush=True)
+    t0, errors = time.time(), []
+    ctx = mp.get_context('spawn')
+    with open(done_path, 'a') as f, ctx.Pool(args.workers, _init_worker, (args.src, out, scales, offsets)) as pool:
+        for i, (row, err) in enumerate(pool.imap_unordered(_process_gt, todo, chunksize=8), 1):
+            if err:
+                errors.append(f'{keys[row]}: {err}')
+            else:
+                f.write(f'{row}\n')
+            if i % 500 == 0 or i == len(todo):
+                f.flush()
+                rate = i / (time.time() - t0)
+                print(f'  {i}/{len(todo)}  {rate:.1f} pairs/s  eta {(len(todo) - i) / rate / 60:.1f} min  '
+                      f'errors {len(errors)}', flush=True)
+    if errors:
+        sys.exit(f'{len(errors)} pairs failed (rerun to retry), e.g. {errors[0]}')
 
 
 def build_cache(args, keys):
@@ -281,6 +340,8 @@ def main():
     parser.add_argument('--max-nodata', type=float, default=0.05)
     parser.add_argument('--max-b02', type=float, default=4000, help='median S2 B02 above this: cloud/snow')
     parser.add_argument('--lists-only', action='store_true', help='skip caching, only redo split/QA lists/stats')
+    parser.add_argument('--add-scales', type=int, nargs='+', default=None,
+                        help='only add these HR arrays to an existing cache, e.g. 16 32')
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -299,6 +360,9 @@ def main():
         with open(keys_path, 'w') as f:
             f.write('\n'.join(keys) + '\n')
 
+    if args.add_scales:
+        add_scales(args, keys)
+        return
     if not args.lists_only:
         build_cache(args, keys)
     write_lists(args, keys)

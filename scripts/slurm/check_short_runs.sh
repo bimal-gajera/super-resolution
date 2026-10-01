@@ -1,11 +1,11 @@
 #!/bin/bash
-# Summarise the smoke-test runs: job states, resume points, loss trend, validation metrics.
-#   bash scripts/slurm/check_smoke.sh [run names under experiments/ ...]
+# Summarise the short runs: job states, resume points, loss trend, validation metrics.
+#   bash scripts/slurm/check_short_runs.sh [run names under experiments/ ...]
 cd "$(dirname "$0")/../.."
-if [ -f slurm_logs/smoke_jobids.txt ]; then
-    sacct -X -j "$(tr ' ' ',' < slurm_logs/smoke_jobids.txt)" --format=JobID,JobName%16,State%12,Elapsed,NodeList%10
+if [ -f slurm_logs/short_runs_jobids.txt ]; then
+    sacct -X -j "$(tr ' ' ',' < slurm_logs/short_runs_jobids.txt)" --format=JobID,JobName%16,State%12,Elapsed,NodeList%10
 fi
-RUNS=${*:-smoke_RRDBNet_PSNR_x4 smoke_SwinIR_SRx4 smoke_ESRGAN_x4 Bicubic_x4_S2Maxar_linearcolor_5k_B16G1}
+RUNS=${*:-short_RRDBNet_PSNR_x4 short_SwinIR_SRx4 short_ESRGAN_x4 Bicubic_x4_S2Maxar_linearcolor_5k_B16G1}
 for n in $RUNS; do
     d=experiments/$n
     echo; echo "=== $n"
