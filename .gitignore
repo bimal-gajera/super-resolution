@@ -12,3 +12,16 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 slurm_logs/
+
+# downstream studies: data, runs, weights, third-party code and handoff notes stay out of git
+downstream/*/data/
+downstream/*/results/
+downstream/*/runs/
+downstream/*/logs/
+downstream/*/weights/
+downstream/*/third_party/
+downstream/*/NEXT_SESSION.md
+
+downstream/*/notes.md
+downstream/*/slurm/
+downstream/*/configs/
