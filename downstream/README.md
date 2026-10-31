@@ -11,6 +11,8 @@ third-party code, notes and the Slurm scripts (cluster-specific) are git-ignored
 
 ## fields/
 
+Step-by-step commands: [`FIELDS_PIPELINE.md`](FIELDS_PIPELINE.md).
+
 **Setup.** The Sentinel-2 and PlanetScope rows of the comparison are taken from the FTP paper; only the SR rows are
 run here. Data: the FTP paper's chip sets (FTP's `index.parquet`, FTW's splits), with FTW's own chips. FTW's chips are
 used as delivered (treated as 10 m / px, as the FTW paper states; no resampling). Their 12-band versions are made with
@@ -26,9 +28,11 @@ Row "3" (3 m SR model -> the paper's model):
 
 | step | script |
 |---|---|
-| chip lists (the paper's train / val / test) | written from FTP's `index.parquet` and FTW's `chips_<country>.parquet` (`data/selections/`) |
+| chip lists (the paper's train / val / test) | `scripts/make_chip_lists.py` (FTP's `index.parquet` + FTW's `chips_<country>.parquet`) |
 | 12-band FTW chips, FTW's procedure, compared with the published chips | `scripts/ftw12_chips.py`, `slurm/ftw12_download.sbatch` |
 | second pass: FTW's original scene where the catalog changed since | `scripts/ftw12_repair.py`, `slurm/ftw12_repair.sbatch` |
+| final lists: chips whose two dates are FTW's exact chips | `scripts/finalize_ftw12.py` |
+| FTW polygons (labels) | `scripts/download_polygons.py` |
 | 3 m SR with the user's `predict_ldm.py` (`--stride 36`), then NIR (user's `stack_nir.py`) + FTP-style labels + the paper's data layout | `slurm/ldm3m_sr.sbatch`, `scripts/make_sr3m_layout.py` |
 | training config = the paper's, with data / countries / epochs / logging changed | `scripts/make_config.py` |
 | train, then score with the paper's evaluation + panels (Sentinel-2 / SR / labels / predictions) | `slurm/ldm3m_train.sbatch`, `scripts/evaluate_ftp.py` |
