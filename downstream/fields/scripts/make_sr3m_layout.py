@@ -61,7 +61,8 @@ def stack_nir(sr: Path, s2: Path, out: Path) -> None:
 def labels(country: str, footprint, shape, transform) -> np.ndarray:
     polys = polygons(country)
     hit = polys.iloc[polys.sindex.query(footprint, predicate="intersects")].geometry
-    clipped = [g for g in hit.intersection(footprint).make_valid() if not g.is_empty and g.area > 0]
+    # FTW polygons can be invalid (self-intersections in France): repair them before clipping
+    clipped = [g for g in hit.make_valid().intersection(footprint) if not g.is_empty and g.area > 0]
     out = np.zeros(shape, np.uint8)
     if not clipped:
         return out
